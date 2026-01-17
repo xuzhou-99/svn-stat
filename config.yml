@@ -1,0 +1,11 @@
+# SVN代码统计工具配置
+# 支持通过Docker挂载自定义配置文件
+
+# SVN基础URL
+svn_base_url: http://svn.my.com/project/iorder-saas
+
+# 默认分支
+default_branch: trunk
+
+# 调试模式
+debug: false
