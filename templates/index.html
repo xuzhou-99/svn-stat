@@ -1158,6 +1158,16 @@
                 document.getElementById('username').value = '';
                 document.getElementById('password').value = '';
                 document.getElementById('revision-range').value = '';
+
+                // 取消选中的配置
+                const checkboxes = document.querySelectorAll('.config-checkbox input[type="checkbox"]');
+                checkboxes.forEach(checkbox => {
+                    checkbox.checked = false;
+                });
+
+                // 更新已选配置数量
+                updateSelectedCount();
+
             }
 
             // 更新执行明细

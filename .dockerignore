@@ -5,12 +5,11 @@ venv/
 # 忽略__pycache__目录
 __pycache__/
 
-# 忽略SVN缓存文件（可选，根据需要决定是否保留）
-# svn_cache.json
-
 # 忽略日志和缓存目录（运行时会重新创建）
 logs/*
 cache/*
+# 忽略配置文件
+config.yml
 
 # 忽略编辑器文件
 .vscode/

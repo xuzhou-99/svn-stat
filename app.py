@@ -137,7 +137,9 @@ def save_cache(cache_data):
         
         with open(CACHE_FILE, 'w', encoding='utf-8') as f:
             json.dump(cache_to_save, f, indent=2, ensure_ascii=False, cls=DateTimeEncoder)
-            print(f"[{datetime.now()}] cache - 缓存大小：{len(json.dumps(cache_to_save))},缓存已保存到: {CACHE_FILE}")
+            
+        cache_file_size = os.path.getsize(CACHE_FILE)
+        print(f"[{datetime.now()}] cache - 缓存已保存到: {CACHE_FILE}, 缓存文件大小：{cache_file_size / 1024:.2f} kb")
         return True
     except Exception as e:
         print(f"[{datetime.now()}] cache - 保存缓存失败: {e}")
@@ -345,7 +347,6 @@ def get_svn_log(branch_url, username=None, password=None, revision_range=None):
     :param revision_range: 版本范围，格式如"1234:5678"或"HEAD"
     :return: SVN log的XML字符串
     """
- 
  
     # 获取该分支的最新版本号
     latest_revision = get_latest_revision_for_branch(branch_url)

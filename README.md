@@ -78,7 +78,6 @@ docker run -d -p 5000:5000 svn-stat
 docker run -d -p 5000:5000 \
   -v ./cache:/app/cache \
   -v ./logs:/app/logs \
-  -v ./svn_cache.json:/app/svn_cache.json \
   -v ./config.yml:/app/config.yml \
   svn-stat
 ```
@@ -156,7 +155,7 @@ services:
     volumes:
       - ./cache:/app/cache
       - ./logs:/app/logs
-      - ./svn_cache.json:/app/svn_cache.json
+      - ./config.yml:/app/config.yml
     restart: always
     environment:
       - FLASK_RUN_HOST=0.0.0.0
@@ -200,8 +199,12 @@ default_branch: trunk
 # 调试模式
 debug: false
 
-# 缓存过期天数
-cache_expire_days: 7
+# svn 用户名密码
+svn_username: myusername
+svn_password: mypassword
+
+# 日志分析默认查询范围（天）
+log_range_days: 180
 ```
 
 ### Docker部署时自定义配置
@@ -221,7 +224,9 @@ docker run -d -p 5000:5000 \
 - **svn_base_url**：SVN服务器基础URL
 - **default_branch**：默认分支名称
 - **debug**：是否启用调试模式
-- **cache_expire_days**：缓存过期天数
+- **svn_username**：SVN用户名
+- **svn_password**：SVN密码
+- **log_range_days**：日志分析默认查询范围（天）
 
 ### 其他配置
 
@@ -249,8 +254,8 @@ docker run -d -p 5000:5000 \
 ### 1. SVN命令执行失败
 
 - 检查SVN客户端是否正确安装
-- 检查SVN服务器访问权限
-- 检查网络连接
+- 检查SVN服务器访问权限，确保提供的用户名和密码有效
+- 检查网络连接，确保能够访问SVN服务器
 
 ### 2. Docker构建失败
 
@@ -261,8 +266,8 @@ docker run -d -p 5000:5000 \
 ### 3. 应用无法访问
 
 - 检查容器是否正在运行：`docker ps`
-- 检查端口映射是否正确
-- 检查防火墙设置，确保端口已开放
+- 检查端口映射是否正确：`docker port svn-stat 5000`
+- 检查防火墙设置，确保端口已开放：`ufw allow 5000`
 
 ### 4. 图表无法显示
 
@@ -276,4 +281,4 @@ docker run -d -p 5000:5000 \
 
 ---
 
-**最后更新时间**：2026-01-17
+**最后更新时间**：2026-01-19
