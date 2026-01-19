@@ -1,0 +1,63 @@
+# Python 相关
+*.pyc
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 虚拟环境
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docker
+Dockerfile
+Dockerfile.go
+.dockerignore
+
+# 文档
+README.md
+*.md
+
+# 忽略其他架构相关文件
+server-node/*
+server-python/*
+
+# 日志和缓存
+logs/*
+cache/*
+*.log
+
+# 配置文件（挂载使用）
+config.yml
+
+# 测试
+*_test.go

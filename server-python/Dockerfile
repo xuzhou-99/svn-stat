@@ -12,7 +12,7 @@ RUN apk add --no-cache \
     bash
 
 # 设置工作目录
-WORKDIR /app
+WORKDIR /app/server-python
 
 # 复制requirements.txt
 COPY requirements.txt .
@@ -36,17 +36,17 @@ RUN apk add --no-cache \
     subversion
 
 # 设置工作目录
-WORKDIR /app
+WORKDIR /app/server-python
 
 # 从构建阶段复制依赖和应用代码
 COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
 COPY --from=builder /usr/local/bin/gunicorn /usr/local/bin/gunicorn
 
 # 复制应用代码（排除不必要的文件，通过.dockerignore实现）
-COPY . /app
+COPY . .
 
 # 创建必要的目录
-RUN mkdir -p /app/cache /app/logs 
+RUN mkdir -p /app/server-python/cache /app/server-python/logs 
 
 # 添加配置文件说明
 LABEL description="SVN代码统计工具，支持通过config.yml配置SVN URL"

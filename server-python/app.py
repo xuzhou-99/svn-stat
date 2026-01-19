@@ -11,10 +11,10 @@ import threading
 import time
 import hashlib
 
-app = Flask(__name__)
+app = Flask(__name__, root_path=os.path.dirname(os.path.dirname(__file__)))
 
 # 配置文件路径（优先使用yml格式）
-CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'config.yml')
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.yml')
 
 # 读取配置
 config = {
@@ -30,6 +30,7 @@ config = {
 def load_config():
     global config
     
+    print(f"[{datetime.now()}] LOAD - ============== 加载配置 ==============")
     # 优先尝试加载yml配置文件
     if os.path.exists(CONFIG_FILE):
         try:
@@ -51,7 +52,7 @@ load_config()
 
 
 # 缓存文件路径
-CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cache', 'svn_cache.json')
+CACHE_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'cache', 'svn_cache.json')
 
 # 缓存结构设计:
 # {
@@ -93,26 +94,27 @@ def load_cache():
     """
     加载缓存数据
     """
+    print(f"[{datetime.now()}] LOAD - ============== 加载缓存 ==============")
     # 创建cache目录（如果不存在）
-    cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cache')
+    cache_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'cache')
     if not os.path.exists(cache_dir):
         os.makedirs(cache_dir)
-        print(f"[{datetime.now()}] cache - 已创建cache目录: {cache_dir}")
+        print(f"[{datetime.now()}] LOAD - 已创建cache目录: {cache_dir}")
     else:
-        print(f"[{datetime.now()}] cache - 目录已存在: {cache_dir}")
+        print(f"[{datetime.now()}] LOAD - 目录已存在: {cache_dir}")
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
-            print(f"[{datetime.now()}] cache - 加载缓存失败: {e}")
-            print(f"[{datetime.now()}] cache - 缓存文件损坏，将重置缓存")
+            print(f"[{datetime.now()}] LOAD - 加载缓存失败: {e}")
+            print(f"[{datetime.now()}] LOAD - 缓存文件损坏，将重置缓存")
             # 删除损坏的缓存文件
             try:
                 os.remove(CACHE_FILE)
-                print(f"[{datetime.now()}] cache - 已删除损坏的缓存文件")
+                print(f"[{datetime.now()}] LOAD - 已删除损坏的缓存文件")
             except Exception as delete_error:
-                print(f"[{datetime.now()}] cache - 删除缓存文件失败: {delete_error}")
+                print(f"[{datetime.now()}] LOAD - 删除缓存文件失败: {delete_error}")
     
     # 返回默认缓存结构
     return {

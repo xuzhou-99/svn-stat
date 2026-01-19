@@ -5,6 +5,12 @@ venv/
 # 忽略__pycache__目录
 __pycache__/
 
+# 忽略其他架构相关文件
+server-node
+server-node/*
+server-go
+server-go/*
+
 # 忽略日志和缓存目录（运行时会重新创建）
 logs/*
 cache/*
