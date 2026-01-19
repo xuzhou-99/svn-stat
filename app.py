@@ -45,13 +45,9 @@ def load_config():
 # 初始化配置
 load_config()
 
-# 添加静态文件路由
-@app.route('/static/<path:filename>')
-def static_files(filename):
-    return send_from_directory('static', filename)
 
 # 缓存文件路径
-CACHE_FILE = os.path.join(os.path.dirname(__file__), 'svn_cache.json')
+CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cache', 'svn_cache.json')
 
 # 缓存结构设计:
 # {
@@ -167,9 +163,6 @@ task_status = {
     'error': None,
     'execution_details': []  # 新增：执行明细列表
 }
-
-# 存储配置和结果
-current_config = {}
 
 # 全局缓存对象
 cache_data = load_cache()
@@ -1753,6 +1746,10 @@ def prepare_chart_data(monthly_stats, author_stats, branch_stats, daily_stats):
     }
 
 
+# 添加静态文件路由
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    return send_from_directory('static', filename)
 
 @app.route('/')
 def index():
@@ -1760,7 +1757,7 @@ def index():
 
 @app.route('/api/start-analysis', methods=['POST'])
 def start_analysis():
-    global task_status, current_config
+    global task_status
     
     print(f"[{datetime.now()}] API POST /api/start-analysis - 请求开始分析任务")
     
@@ -1785,27 +1782,12 @@ def start_analysis():
             print(f"[{datetime.now()}] API POST /api/start-analysis - 缺少分支配置，拒绝请求")
             return jsonify({'success': False, 'message': '请选择至少一个分支配置'})
         
-        current_config = {
-            'branches': branches,
-            'revision_range': revision_range,
-            'start_date': start_date,
-            'end_date': end_date
-        }
     else:
         print(f"[{datetime.now()}] API POST /api/start-analysis - 分支URL: {branch_url}, 版本范围: {revision_range}, 开始日期: {start_date}, 结束日期: {end_date}")
         
         if not branch_url:
             print(f"[{datetime.now()}] API POST /api/start-analysis - 缺少必填参数 branch_url，拒绝请求")
             return jsonify({'success': False, 'message': '请输入SVN分支URL'})
-        
-        current_config = {
-            'branch_url': branch_url,
-            'username': username,
-            'password': password,
-            'revision_range': revision_range,
-            'start_date': start_date,
-            'end_date': end_date
-        }
     
     print(f"[{datetime.now()}] API POST /api/start-analysis - 配置已保存，准备启动任务")
     
