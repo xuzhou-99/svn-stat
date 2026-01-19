@@ -871,6 +871,13 @@
                     return;
                 }
 
+                // 检查分支URL是否已经存在
+                const existingConfig = savedConfigs.find(config => config.branchUrl === branchUrl);
+                if (existingConfig) {
+                    showError('该分支URL已存在，不支持重复保存');
+                    return;
+                }
+
                 const config = {
                     id: Date.now(),
                     name: configName,

@@ -9,3 +9,10 @@ default_branch: trunk
 
 # 调试模式
 debug: false
+
+# SVN用户名和密码
+svn_username: user
+svn_password: pwd
+
+# 日志分析默认查询范围（天）
+log_range_days: 180

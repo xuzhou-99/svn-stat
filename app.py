@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 import json
 import yaml
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import subprocess
 import threading
 import time
@@ -20,7 +20,10 @@ CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'config.yml')
 config = {
     "svn_base_url": "http://svn.my.com/project/iorder-saas",
     "default_branch": "trunk",
-    "debug": False
+    "debug": False,
+    "svn_username": "svnuser",
+    "svn_password": "svnpassword",
+    "log_range_days": 180
 }
 
 # 加载配置文件
@@ -34,13 +37,14 @@ def load_config():
                 loaded_config = yaml.safe_load(f)
                 if loaded_config:
                     config.update(loaded_config)
-            print("从yml配置文件加载配置成功: {}".format(CONFIG_FILE))
+            print(f"[{datetime.now()}] LOAD - 从yml配置文件加载配置成功: {CONFIG_FILE}")
+            print(f"[{datetime.now()}] LOAD - 当前配置: {config}")
             return
         except Exception as e:
-            print("加载yml配置文件失败: {}".format(e))
+            print(f"[{datetime.now()}] LOAD - 加载yml配置文件失败: {e}")
     
     # 如果都不存在，使用默认配置
-    print("未找到配置文件，使用默认配置")
+    print(f"[{datetime.now()}] LOAD - 未找到配置文件，使用默认配置")
 
 # 初始化配置
 load_config()
@@ -89,19 +93,26 @@ def load_cache():
     """
     加载缓存数据
     """
+    # 创建cache目录（如果不存在）
+    cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cache')
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir)
+        print(f"[{datetime.now()}] cache - 已创建cache目录: {cache_dir}")
+    else:
+        print(f"[{datetime.now()}] cache - 目录已存在: {cache_dir}")
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
-            print(f"加载缓存失败: {e}")
-            print(f"[{datetime.now()}] 缓存文件损坏，将重置缓存")
+            print(f"[{datetime.now()}] cache - 加载缓存失败: {e}")
+            print(f"[{datetime.now()}] cache - 缓存文件损坏，将重置缓存")
             # 删除损坏的缓存文件
             try:
                 os.remove(CACHE_FILE)
-                print(f"[{datetime.now()}] 已删除损坏的缓存文件")
+                print(f"[{datetime.now()}] cache - 已删除损坏的缓存文件")
             except Exception as delete_error:
-                print(f"[{datetime.now()}] 删除缓存文件失败: {delete_error}")
+                print(f"[{datetime.now()}] cache - 删除缓存文件失败: {delete_error}")
     
     # 返回默认缓存结构
     return {
@@ -126,9 +137,10 @@ def save_cache(cache_data):
         
         with open(CACHE_FILE, 'w', encoding='utf-8') as f:
             json.dump(cache_to_save, f, indent=2, ensure_ascii=False, cls=DateTimeEncoder)
+            print(f"[{datetime.now()}] cache - 缓存大小：{len(json.dumps(cache_to_save))},缓存已保存到: {CACHE_FILE}")
         return True
     except Exception as e:
-        print(f"保存缓存失败: {e}")
+        print(f"[{datetime.now()}] cache - 保存缓存失败: {e}")
         return False
 
 # 生成文件级缓存键
@@ -154,6 +166,10 @@ def generate_revision_cache_key(revision, branch_url):
     # return hashlib.md5(key_str.encode()).hexdigest()
     return revision
 
+
+# 全局缓存对象
+cache_data = load_cache()
+
 # 全局任务状态
 task_status = {
     'running': False,
@@ -164,10 +180,6 @@ task_status = {
     'execution_details': []  # 新增：执行明细列表
 }
 
-# 全局缓存对象
-cache_data = load_cache()
-
-# 加载持久化结果数据
 # 初始化分析结果，不从缓存加载
 analysis_results = {}
 
@@ -246,7 +258,7 @@ def get_svn_externals(branch_url, username=None, password=None):
                         
                         # 替换所有以"^/trunk/"开头的SVN路径引用为完整URL
                         if relative_path.startswith("^/trunk/"):
-                            relative_path = "{}{}".format(config["svn_base_url"], relative_path)
+                            relative_path = "{}{}".format(config.get("svn_base_url", ""), relative_path)
                     
                         
                         externals.append({
@@ -337,7 +349,7 @@ def get_svn_log(branch_url, username=None, password=None, revision_range=None):
  
     # 获取该分支的最新版本号
     latest_revision = get_latest_revision_for_branch(branch_url)
-    print(f"[{datetime.now()}] 最新版本号: {latest_revision}")
+    print(f"[{datetime.now()}] SVN-log - 最新版本号: {latest_revision}")
     
     # 确定版本范围
     branch_revision_range = revision_range
@@ -357,7 +369,7 @@ def get_svn_log(branch_url, username=None, password=None, revision_range=None):
             'message': f'分支 {branch_url} 最新版本号: {latest_revision}，使用版本范围: {branch_revision_range}',
             'level': 'info'
         })
-    print(f"[{datetime.now()}] SVN任务 - 分支 {branch_url} 版本范围: {branch_revision_range}")
+    print(f"[{datetime.now()}] SVN-log - 分支 {branch_url} 版本范围: {branch_revision_range}")
 
     # 从SVN服务器获取指定分支的提交记录
     cmd = ['svn', 'log', '--xml', '--verbose', '--no-auth-cache']  # 添加--no-auth-cache参数
@@ -371,7 +383,7 @@ def get_svn_log(branch_url, username=None, password=None, revision_range=None):
 
     cmd.append(branch_url)
     
-    print(f"[{datetime.now()}] SVN任务 - 正在执行SVN命令: {' '.join(cmd)}")
+    print(f"[{datetime.now()}] SVN-log - 正在执行SVN命令: {' '.join(cmd)}")
     try:
         # 不使用encoding参数，获取原始字节输出
         result = subprocess.run(cmd, capture_output=True, text=False, timeout=600)  # 增加超时时间到600秒
@@ -382,7 +394,7 @@ def get_svn_log(branch_url, username=None, password=None, revision_range=None):
             stdout = result.stdout.decode('utf-8')
             stderr = result.stderr.decode('utf-8')
         except UnicodeDecodeError:
-            print(f"[{datetime.now()}] SVN任务 - UTF-8编码解码失败，尝试使用GBK编码")
+            print(f"[{datetime.now()}] SVN-log - UTF-8编码解码失败，尝试使用GBK编码")
             try:
                 stdout = result.stdout.decode('gbk')
                 stderr = result.stderr.decode('gbk')
@@ -390,16 +402,16 @@ def get_svn_log(branch_url, username=None, password=None, revision_range=None):
                 # 如果GBK也失败，尝试使用latin-1（不会失败）
                 stdout = result.stdout.decode('latin-1')
                 stderr = result.stderr.decode('latin-1')
-                print(f"[{datetime.now()}] SVN任务 - GBK编码解码失败，使用latin-1编码")
+                print(f"[{datetime.now()}] SVN-log - GBK编码解码失败，使用latin-1编码")
         
         if result.returncode != 0:
             error_msg = f'SVN命令执行失败: {stderr}'
-            print(f"[{datetime.now()}] SVN任务 - 错误: {error_msg}")
+            print(f"[{datetime.now()}] SVN-log - 错误: {error_msg}")
             task_status['error'] = error_msg
             task_status['running'] = False
             return
         
-        print(f"[{datetime.now()}] SVN任务 - SVN命令执行成功，返回码: {result.returncode}")
+        print(f"[{datetime.now()}] SVN-log - SVN命令执行成功，返回码: {result.returncode}")
         
         # 构造并返回结果对象
         class Result:
@@ -411,13 +423,13 @@ def get_svn_log(branch_url, username=None, password=None, revision_range=None):
         return Result(stdout, stderr, result.returncode)
     except subprocess.TimeoutExpired:
         error_msg = f'SVN命令超时，请减小版本范围或检查网络连接\n命令: {" ".join(cmd)}'
-        print(f"[{datetime.now()}] SVN任务 - 错误: {error_msg}")
+        print(f"[{datetime.now()}] SVN-log - 错误: {error_msg}")
         task_status['error'] = error_msg
         task_status['running'] = False
         return
     except Exception as e:
         error_msg = f'获取SVN日志失败: {e}'
-        print(f"[{datetime.now()}] SVN任务 - 错误: {error_msg}")
+        print(f"[{datetime.now()}] SVN-log - 错误: {error_msg}")
         task_status['error'] = error_msg
         task_status['running'] = False
         return
@@ -433,6 +445,8 @@ def get_svn_diff(branch_url, revision, username=None, password=None, use_cache=F
     :param use_cache: 是否直接从缓存中获取数据
     :return: (新增行数, 删除行数, 文件详情字典)
     """
+    # print(f"[{datetime.now()}] SVN - branch_url: {branch_url}, revision: {revision}, username: {username}, password: {'*' * len(password) if password else 'None'}, use_cache: {use_cache}")
+    
     # 生成版本级缓存键
     revision_cache_key = generate_revision_cache_key(revision, branch_url);
     
@@ -462,10 +476,11 @@ def get_svn_diff(branch_url, revision, username=None, password=None, use_cache=F
                 else:
                     # 如果文件缓存不存在，标记为需要重新获取
                     need_refresh = True
-                    print(f"缓存版本 {revision} 数据过期，需要重新获取")
             if not need_refresh:
+                print(f"[{datetime.now()}] SVN-diff 缓存版本 {revision} 数据存在,使用缓存数据")
                 return (total_lines_added, total_lines_deleted, file_details)
     
+    print(f"[{datetime.now()}] SVN-diff - 重新获取svn diff, revision: {revision}")
     # 解析SVN diff结果，获取每个文件的变化
     cmd = ['svn', 'diff', '-c', str(revision), '--no-auth-cache']
     
@@ -477,7 +492,7 @@ def get_svn_diff(branch_url, revision, username=None, password=None, use_cache=F
     cmd.append(branch_url)
     
     try:
-        print(f"获取diff (rev {revision})")
+        print(f"[{datetime.now()}] SVN-diff 获取diff (rev {revision})")
         # 使用text=False获取原始字节输出
         result = subprocess.run(cmd, capture_output=True, text=False, timeout=60)
         
@@ -549,7 +564,7 @@ def get_svn_diff(branch_url, revision, username=None, password=None, use_cache=F
                     lines_deleted = cached_file['lines_deleted']
                     author = cached_file['author']
                     use_cached = True
-                    print(f"  使用缓存文件数据: {file_path}")
+                    print(f"[{datetime.now()}] SVN-diff 使用缓存文件数据: {file_path}")
             
             # 如果没有缓存或文件内容变化，更新缓存
             if not use_cached:
@@ -592,7 +607,7 @@ def get_svn_diff(branch_url, revision, username=None, password=None, use_cache=F
         
         return (total_lines_added, total_lines_deleted, file_details)
     except Exception as e:
-        print(f"获取diff失败 (rev {revision}): {e}")
+        print(f"[{datetime.now()}] SVN-diff 获取diff失败 (rev {revision}): {e}")
         import traceback
         traceback.print_exc()
         return (0, 0, {})
@@ -915,9 +930,9 @@ def parse_svn_log(startDate=None, endDate=None):
             if branches:
                 tmp_branch_url = list(branches)[0]
                 if tmp_branch_url.startswith('/trunk'):
-                    branche_url = "{}{}".format(config["svn_base_url"], branch)
+                    branch_url = "{}{}".format(config.get("svn_base_url", ""), branch)
                 else:
-                    branche_url = tmp_branch_url
+                    branch_url = tmp_branch_url
             
             # 代码行数统计（初始化为0，后续通过svn diff获取）
             lines_added = 0
@@ -928,7 +943,7 @@ def parse_svn_log(startDate=None, endDate=None):
                 'author': author,
                 'date': date.isoformat(),
                 'date_str': date_str,
-                'branche_url': branche_url,
+                'branch_url': branch_url,
                 'files_changed': files_changed,
                 'changed_files': changed_files,
                 'branches': list(branches),
@@ -967,7 +982,6 @@ def multi_branch_svn_log_task(branches, revision_range, start_date=None, end_dat
         
         # 收集所有分支的日志结果
         all_branch_results = []
-        all_commits = []
         
         # 遍历每个分支
         for i, branch_config in enumerate(branches, 1):
@@ -1062,16 +1076,13 @@ def multi_branch_svn_log_task(branches, revision_range, start_date=None, end_dat
         print(f"[{datetime.now()}] SVN任务 - 开始解析日志文件")
         
         # 解析日志获取版本列表
-        all_commits = parse_svn_log(start_date, end_date)
-        print(f"[{datetime.now()}] SVN任务 - 日志解析完成，共找到 {len(all_commits)} 条提交记录")
+        commits = parse_svn_log(start_date, end_date)
+        print(f"[{datetime.now()}] SVN任务 - 日志解析完成，共找到 {len(commits)} 条提交记录")
         task_status['execution_details'].append({
             'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'message': f'日志解析完成，共找到 {len(all_commits)} 条提交记录',
+            'message': f'日志解析完成，共找到 {len(commits)} 条提交记录',
             'level': 'info'
         })
-           
-        # 增量更新处理
-        commits = all_commits
         
         total_commits = len(commits)
         if total_commits == 0:
@@ -1108,7 +1119,7 @@ def multi_branch_svn_log_task(branches, revision_range, start_date=None, end_dat
                 password = ""
             
             print(f"[{datetime.now()}] SVN任务 - 调用 get_svn_diff 获取版本 {revision} 的代码行数变化")
-            lines_added, lines_deleted, file_details = get_svn_diff(commit['branche_url'], revision, username, password, True)
+            lines_added, lines_deleted, file_details = get_svn_diff(commit['branch_url'], revision, username, password, True)
             print(f"[{datetime.now()}] SVN任务 - 版本 {revision} 分析完成，新增 {lines_added} 行，删除 {lines_deleted} 行，涉及 {len(file_details)} 个文件")
             
             # 保存到提交记录
@@ -1340,16 +1351,13 @@ def svn_log_task(branch_url, username, password, revision_range, start_date=None
         print(f"[{datetime.now()}] SVN任务 - 开始解析日志文件")
 
         # 解析日志获取版本列表
-        all_commits = parse_svn_log(start_date, end_date)
-        print(f"[{datetime.now()}] SVN任务 - 日志解析完成，共找到 {len(all_commits)} 条提交记录")
+        commits = parse_svn_log(start_date, end_date)
+        print(f"[{datetime.now()}] SVN任务 - 日志解析完成，共找到 {len(commits)} 条提交记录")
         task_status['execution_details'].append({
             'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'message': f'日志解析完成，共找到 {len(all_commits)} 条提交记录',
+            'message': f'日志解析完成，共找到 {len(commits)} 条提交记录',
             'level': 'info'
         })
-        
-        # 增量更新处理
-        commits = all_commits
         
         total_commits = len(commits)
         if total_commits == 0:
@@ -1377,7 +1385,7 @@ def svn_log_task(branch_url, username, password, revision_range, start_date=None
             
             # 获取代码行数变化，包含文件详情
             print(f"[{datetime.now()}] SVN任务 - 调用 get_svn_diff 获取版本 {revision} 的代码行数变化")
-            lines_added, lines_deleted, file_details = get_svn_diff(commit['branche_url'], revision, username, password, True)
+            lines_added, lines_deleted, file_details = get_svn_diff(commit['branch_url'], revision, username, password, True)
             print(f"[{datetime.now()}] SVN任务 - 版本 {revision} 分析完成，新增 {lines_added} 行，删除 {lines_deleted} 行，涉及 {len(file_details)} 个文件")
             
             # 保存到提交记录
@@ -1477,24 +1485,24 @@ def get_log(start_date=None, end_date=None):
         print(f"[{datetime.now()}] SVN任务 - 开始解析日志文件")
 
         # 解析日志获取版本列表
-        all_commits = parse_svn_log(start_date, end_date)
-        print(f"[{datetime.now()}] SVN任务 - 日志解析完成，共找到 {len(all_commits)} 条提交记录")
+        commits = parse_svn_log(start_date, end_date)
+        print(f"[{datetime.now()}] SVN任务 - 日志解析完成，共找到 {len(commits)} 条提交记录")
         
-        total_commits = len(all_commits)
+        total_commits = len(commits)
         if total_commits == 0:
-            gen_analysis_results(all_commits, start_date, end_date, "")
+            gen_analysis_results(commits, start_date, end_date, "")
             return
         
         # 获取每个版本的代码行数变化
         print(f"[{datetime.now()}] SVN任务 - 开始获取代码行数变化，共 {total_commits} 个版本需要分析")
-        for i, commit in enumerate(all_commits):
+        for i, commit in enumerate(commits):
             revision = commit['revision']
             
             print(f"[{datetime.now()}] SVN任务 - 分析版本 {revision} ({i + 1}/{total_commits})")
             
             # 获取代码行数变化，包含文件详情
             print(f"[{datetime.now()}] SVN任务 - 调用 get_svn_diff 获取版本 {revision} 的代码行数变化")
-            lines_added, lines_deleted, file_details = get_svn_diff(commit['branche_url'], revision, "xuzhou", "Xzwork2022", True)
+            lines_added, lines_deleted, file_details = get_svn_diff(commit['branch_url'], revision, config.get('svn_username', ""), config.get('svn_password', ""), True)
             print(f"[{datetime.now()}] SVN任务 - 版本 {revision} 分析完成，新增 {lines_added} 行，删除 {lines_deleted} 行，涉及 {len(file_details)} 个文件")
             
             # 保存到提交记录
@@ -1508,8 +1516,8 @@ def get_log(start_date=None, end_date=None):
         
         print(f"[{datetime.now()}] SVN任务 - 开始生成统计数据")
         
-        # 生成新的统计
-        gen_analysis_results(all_commits, start_date, end_date, "")
+        # 生成新的统计数据
+        gen_analysis_results(commits, start_date, end_date, "")
 
         # 更新缓存文件，只保存缓存数据
         print(f"[{datetime.now()}] SVN任务 - 正在更新缓存文件")
@@ -1529,6 +1537,7 @@ def get_log(start_date=None, end_date=None):
 
 # 生成分析结果
 def gen_analysis_results(commits, startDate=None, endDate=None, revision_range=None):
+    global analysis_results
     # 生成统计
     monthly_stats = get_monthly_stats(commits)
     author_stats = get_author_stats(commits)
@@ -1539,7 +1548,7 @@ def gen_analysis_results(commits, startDate=None, endDate=None, revision_range=N
     
     # 保存结果
     print(f"[{datetime.now()}] SVN任务 - 正在保存分析结果")
-    global analysis_results
+
     total_files = sum(c['files_changed'] for c in commits)
     total_lines_added = sum(c['lines_added'] for c in commits)
     total_lines_deleted = sum(c['lines_deleted'] for c in commits)
@@ -1773,6 +1782,19 @@ def start_analysis():
     revision_range = (data.get('revision_range') or '').strip() or None
     start_date = (data.get('start_date') or '').strip() or None
     end_date = (data.get('end_date') or '').strip() or None
+    
+    # 日期处理逻辑
+    today = datetime.now().strftime('%Y-%m-%d')
+    if not start_date and not end_date:
+        # 两者都不存在，取今天作为结束日期，180天前作为开始日期
+        end_date = today
+        start_date = (datetime.now() - timedelta(days=config.get('log_range_days', 180))).strftime('%Y-%m-%d')
+    elif not end_date:
+        # 结束日期不存在，取今天作为结束日期
+        end_date = today
+    elif not start_date:
+        # 开始日期不存在，取配置中的天数前作为开始日期
+        start_date = (datetime.now() - timedelta(days=config.get('log_range_days', 180))).strftime('%Y-%m-%d')
     
     # 检查是否使用多分支配置
     if branches:

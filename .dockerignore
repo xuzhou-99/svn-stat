@@ -12,9 +12,6 @@ __pycache__/
 logs/*
 cache/*
 
-# 忽略统计工具目录
-statsvn-0.7.0/
-
 # 忽略编辑器文件
 .vscode/
 .idea/
