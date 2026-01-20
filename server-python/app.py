@@ -350,29 +350,7 @@ def get_svn_log(branch_url, username=None, password=None, revision_range=None):
     :return: SVN log的XML字符串
     """
  
-    # 获取该分支的最新版本号
-    latest_revision = get_latest_revision_for_branch(branch_url)
-    print(f"[{datetime.now()}] SVN-log - 最新版本号: {latest_revision}")
-    
-    # 确定版本范围
-    branch_revision_range = revision_range
-    if latest_revision:
-        # 如果找到最新版本号，使用从最新版本开始的版本范围
-        if revision_range:
-            if revision_range.contains(":"):
-                start_rev, end_rev = revision_range.split(":")
-                branch_revision_range = f"{latest_revision}:{end_rev}"
-            else:
-                branch_revision_range = f"{latest_revision}:{revision_range}"
-        else:
-            branch_revision_range = f"{latest_revision}:HEAD"
-        
-        task_status['execution_details'].append({
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'message': f'分支 {branch_url} 最新版本号: {latest_revision}，使用版本范围: {branch_revision_range}',
-            'level': 'info'
-        })
-    print(f"[{datetime.now()}] SVN-log - 分支 {branch_url} 版本范围: {branch_revision_range}")
+    print(f"[{datetime.now()}] SVN-log - 分支 {branch_url} 版本范围: {revision_range}")
 
     # 从SVN服务器获取指定分支的提交记录
     cmd = ['svn', 'log', '--xml', '--verbose', '--no-auth-cache']  # 添加--no-auth-cache参数
@@ -381,8 +359,8 @@ def get_svn_log(branch_url, username=None, password=None, revision_range=None):
         cmd.extend(['--username', username])
     if password:
         cmd.extend(['--password', password])
-    if branch_revision_range:
-        cmd.extend(['-r', branch_revision_range])
+    if revision_range:
+        cmd.extend(['-r', revision_range])
 
     cmd.append(branch_url)
     
@@ -483,7 +461,7 @@ def get_svn_diff(branch_url, revision, username=None, password=None, use_cache=F
                 print(f"[{datetime.now()}] SVN-diff 缓存版本 {revision} 数据存在,使用缓存数据")
                 return (total_lines_added, total_lines_deleted, file_details)
     
-    print(f"[{datetime.now()}] SVN-diff - 重新获取svn diff, revision: {revision}")
+    print(f"[{datetime.now()}] SVN-diff - 重新获取版本 {revision} 数据, branch_url: {branch_url}")
     # 解析SVN diff结果，获取每个文件的变化
     cmd = ['svn', 'diff', '-c', str(revision), '--no-auth-cache']
     
@@ -493,9 +471,9 @@ def get_svn_diff(branch_url, revision, username=None, password=None, use_cache=F
         cmd.extend(['--password', password])
     
     cmd.append(branch_url)
+    print(f"[{datetime.now()}] SVN-diff - 正在执行SVN命令: {' '.join(cmd)}")
     
     try:
-        print(f"[{datetime.now()}] SVN-diff 获取diff (rev {revision})")
         # 使用text=False获取原始字节输出
         result = subprocess.run(cmd, capture_output=True, text=False, timeout=60)
         
@@ -625,7 +603,7 @@ def extract_branch(path):
 
 
 # 获取指定分支的最新版本号
-def get_latest_revision_for_branch(branch_url):
+def get_latest_revision_in_cache(branch_url):
     """
     从svn.cache中获取指定分支的最新版本号
     :param branch_url: SVN分支URL
@@ -707,6 +685,7 @@ def get_all_year_log_files(start_date=None, end_date=None, root_path=None):
 
 # 写入SVN日志文件
 def write_svn_log(all_log_results):
+    global task_status
     # 创建字典存储每个版本的最新日志条目（使用revision作为键）
     logentries_dict = {}
     old_revisions = 0
@@ -803,6 +782,13 @@ def write_svn_log(all_log_results):
     
     print(f"[{datetime.now()}] SVN任务 - 合并完成，共 {len(logentries_dict)} 个唯一版本，新增 {new_revisions} 个版本")
     
+    # 更新任务状态
+    task_status['execution_details'].append({
+        'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+        'message': f'合并完成，共 {len(logentries_dict)} 个唯一版本，新增 {new_revisions} 个版本',
+        'level': 'info'
+    })
+    
     # 按年份分组日志条目
     logentries_by_year = {}
     for rev in logentries_dict:
@@ -833,7 +819,14 @@ def write_svn_log(all_log_results):
         year_tree = ET.ElementTree(year_root)
         year_tree.write(year_log_file, encoding='utf-8', xml_declaration=True)
         print(f"[{datetime.now()}] SVN任务 - 已保存 {year} 年日志到 {year_log_file}，共 {len(year_logentries)} 条记录")
-
+        
+        # 更新任务状态
+        task_status['execution_details'].append({
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'message': f'已保存 {year} 年日志到 {year_log_file}，共 {len(year_logentries)} 条记录',
+            'level': 'info'
+        })
+        
 # 解析svn.log文件
 def parse_svn_log(startDate=None, endDate=None):
     """
@@ -961,11 +954,11 @@ def parse_svn_log(startDate=None, endDate=None):
 
     return all_commits
 
-# 多分支SVN日志获取任务
-def multi_branch_svn_log_task(branches, revision_range, start_date=None, end_date=None):
+# SVN日志获取任务
+def svn_log_task(branches, revision_range, start_date=None, end_date=None, withExternals=False, full_analysis=False):
     global task_status
 
-    print(f"[{datetime.now()}] SVN任务 - 开始执行多分支SVN代码统计任务")
+    print(f"[{datetime.now()}] SVN任务 - 开始执行SVN代码统计任务")
     print(f"[{datetime.now()}] SVN任务 - 参数: 分支数量: {len(branches)}, 版本范围: {revision_range}, 开始日期: {start_date}, 结束日期: {end_date}")
     
     try:
@@ -974,24 +967,24 @@ def multi_branch_svn_log_task(branches, revision_range, start_date=None, end_dat
         
         task_status['running'] = True
         task_status['progress'] = 5
-        task_status['message'] = '正在准备分析多个分支...'
+        task_status['message'] = '正在连接SVN服务器...'
         
         # 添加执行明细
         task_status['execution_details'].append({
             'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'message': f'开始执行多分支SVN代码统计任务，共 {len(branches)} 个分支',
+            'message': f'开始执行SVN代码统计任务，共 {len(branches)} 个分支',
             'level': 'info'
         })
-        
+
         # 收集所有分支的日志结果
         all_branch_results = []
-        
+
         # 遍历每个分支
         for i, branch_config in enumerate(branches, 1):
             branch_url = branch_config.get('branch_url')
             username = branch_config.get('username')
             password = branch_config.get('password')
-            
+
             task_status['progress'] = 5 + (i - 1) * 15
             task_status['message'] = f'正在分析分支 {i}/{len(branches)}...'
             
@@ -1000,9 +993,55 @@ def multi_branch_svn_log_task(branches, revision_range, start_date=None, end_dat
                 'message': f'开始分析分支 {i}/{len(branches)}: {branch_url}',
                 'level': 'info'
             })
+
+            task_status['execution_details'].append({
+                'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                'message': f'使用用户名: {username}',
+                'level': 'info'
+            })
+        
+            # 密码脱敏
+            task_status['execution_details'].append({
+                'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                'message': '使用密码: ******',
+                'level': 'info'
+            })
             
             try:
-                
+                # 如果勾选了全量分析，不限制版本范围
+                if full_analysis:
+                    revision_range = ''
+                    task_status['execution_details'].append({
+                        'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                        'message': '全量分析模式：不限制版本范围',
+                        'level': 'info'
+                    })
+                else:
+                    # 如果没有勾选全量分析，从缓存获取最新版本号
+                    latest_revision = get_latest_revision_in_cache(branch_url)
+                    if latest_revision:
+                        # 如果找到最新版本号，使用从最新版本开始的版本范围
+                        if revision_range:
+                            start_rev, end_rev = revision_range.split(":")
+                            if start_rev and end_rev:
+                                revision_range = f"{start_rev}:{end_rev}"
+                            elif start_rev:
+                                revision_range = f"{latest_revision}:{start_rev}"
+                        else:
+                            revision_range = f"{latest_revision}:HEAD"
+                    
+                    task_status['execution_details'].append({
+                        'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                        'message': f'增量分析模式：缓存获取最新版本号: {latest_revision}，使用版本范围: {revision_range}',
+                        'level': 'info'
+                    })   
+
+                task_status['execution_details'].append({
+                    'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'message': f'开始获取分支 {branch_url} 日志',
+                    'level': 'info'
+                })   
+
                 # 获取SVN日志（主分支）
                 main_result = get_svn_log(branch_url, username, password, revision_range)
                 
@@ -1016,9 +1055,8 @@ def multi_branch_svn_log_task(branches, revision_range, start_date=None, end_dat
                         'level': 'warning'
                     })
                     continue
-                
                 # 检查命令执行结果
-                if main_result.returncode != 0:
+                elif main_result.returncode != 0:
                     error_msg = f'分支 {branch_url} SVN命令执行失败: {main_result.stderr}'
                     print(f"[{datetime.now()}] SVN任务 - 错误: {error_msg}")
                     task_status['execution_details'].append({
@@ -1027,10 +1065,10 @@ def multi_branch_svn_log_task(branches, revision_range, start_date=None, end_dat
                         'level': 'warning'
                     })
                     continue
-                
-                print(f"[{datetime.now()}] SVN任务 - 分支 {branch_url} SVN命令执行成功")
+
+                print(f"[{datetime.now()}] SVN任务 - 分支 {branch_url} SVN命令执行成功，返回码: {main_result.returncode}")
                 all_branch_results.append(main_result)
-                
+
                 success_msg = f'分支 {branch_url} 日志获取成功， 版本范围: {revision_range}，分支日志数: {len(main_result.stdout)}'
                 print(f"[{datetime.now()}] SVN任务 - {success_msg}")
                 task_status['execution_details'].append({
@@ -1038,7 +1076,60 @@ def multi_branch_svn_log_task(branches, revision_range, start_date=None, end_dat
                     'message': success_msg,
                     'level': 'success'
                 })
+
+                # 获取并处理SVN externals
+                if withExternals:
+                    task_status['execution_details'].append({
+                        'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                        'message': '开始处理SVN externals',
+                        'level': 'info'
+                    })
+
+                    externals = get_svn_externals(branch_url, username, password)
                 
+                    task_status['execution_details'].append({
+                        'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                        'message': f'开始获取 {len(externals)} 个external分支的日志',
+                        'level': 'info'
+                    })
+                    
+                    # 获取每个external的日志
+                    for i, external in enumerate(externals, 1):
+                        external_msg = f'正在获取external分支日志 ({i}/{len(externals)}): {external["url"]}'
+                        print(f"[{datetime.now()}] SVN任务 - {external_msg}")
+                        task_status['execution_details'].append({
+                            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                            'message': external_msg,
+                            'level': 'info'
+                        })
+                        
+                        external_result = get_svn_log(external['url'], username, password, revision_range)
+                        
+                        if external_result and external_result.returncode == 0:
+                            all_branch_results.append(external_result)
+                            success_msg = f'external分支日志获取成功: {external["url"]}'
+                            print(f"[{datetime.now()}] SVN任务 - {success_msg}")
+                            task_status['execution_details'].append({
+                                'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                                'message': success_msg,
+                                'level': 'success'
+                            })
+                        else:
+                            error_msg = f'external分支日志获取失败: {external["url"]}'
+                            print(f"[{datetime.now()}] SVN任务 - {error_msg}")
+                            task_status['execution_details'].append({
+                                'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                                'message': error_msg,
+                                'level': 'warning'
+                            })
+                else:
+                    task_status['execution_details'].append({
+                        'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                        'message': '忽略获取external配置',
+                        'level': 'info'
+                    })
+        
+            
             except Exception as e:
                 error_msg = f'分支 {branch_url} 处理失败: {e}'
                 print(f"[{datetime.now()}] SVN任务 - 错误: {error_msg}")
@@ -1048,27 +1139,27 @@ def multi_branch_svn_log_task(branches, revision_range, start_date=None, end_dat
                     'level': 'error'
                 })
                 continue
-        
+
         if not all_branch_results:
             task_status['error'] = '所有分支日志获取失败，请检查网络连接或SVN配置'
             task_status['running'] = False
             return
         
-        task_status['progress'] = 50
-        task_status['message'] = '正在保存日志...'
+        task_status['progress'] = 40
+        task_status['message'] = '正在获取SVN日志...'
         
         print(f"[{datetime.now()}] SVN任务 - 正在保存日志到文件")
         
         # 增量写入日志文件：合并现有日志和所有新获取的日志（主分支+externals）  
         write_svn_log(all_branch_results)
-
+        
         task_status['execution_details'].append({
             'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
             'message': f'日志获取完成，已按年份保存到 logs 目录下',
             'level': 'info'
         })
-        
-        task_status['progress'] = 60
+
+        task_status['progress'] = 50
         task_status['message'] = '正在解析日志并获取代码行数...'
         task_status['execution_details'].append({
             'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
@@ -1077,17 +1168,17 @@ def multi_branch_svn_log_task(branches, revision_range, start_date=None, end_dat
         })
         
         print(f"[{datetime.now()}] SVN任务 - 开始解析日志文件")
-        
+
         # 解析日志获取版本列表
         commits = parse_svn_log(start_date, end_date)
-        print(f"[{datetime.now()}] SVN任务 - 日志解析完成，共找到 {len(commits)} 条提交记录")
+        total_commits = len(commits)
+        print(f"[{datetime.now()}] SVN任务 - 日志解析完成，共找到 {total_commits} 条提交记录")
         task_status['execution_details'].append({
             'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'message': f'日志解析完成，共找到 {len(commits)} 条提交记录',
+            'message': f'日志解析完成，{start_date or "/"} - {end_date or "/"} 共找到 {total_commits} 条提交记录',
             'level': 'info'
         })
-        
-        total_commits = len(commits)
+
         if total_commits == 0:
             task_status['error'] = f'在指定日期范围内没有找到提交记录\n开始日期: {start_date or "无"}\n结束日期: {end_date or "无"}'
             task_status['running'] = False
@@ -1103,6 +1194,7 @@ def multi_branch_svn_log_task(branches, revision_range, start_date=None, end_dat
         print(f"[{datetime.now()}] SVN任务 - 开始获取代码行数变化，共 {total_commits} 个版本需要分析")
         for i, commit in enumerate(commits):
             revision = commit['revision']
+            branch_url = commit['branch_url']
             
             print(f"[{datetime.now()}] SVN任务 - 分析版本 {revision} ({i + 1}/{total_commits})")
             task_status['execution_details'].append({
@@ -1118,278 +1210,13 @@ def multi_branch_svn_log_task(branches, revision_range, start_date=None, end_dat
                 username = branches[0].get('username')
                 password = branches[0].get('password')
             else:
-                username = ""
-                password = ""
-            
-            print(f"[{datetime.now()}] SVN任务 - 调用 get_svn_diff 获取版本 {revision} 的代码行数变化")
-            lines_added, lines_deleted, file_details = get_svn_diff(commit['branch_url'], revision, username, password, True)
-            print(f"[{datetime.now()}] SVN任务 - 版本 {revision} 分析完成，新增 {lines_added} 行，删除 {lines_deleted} 行，涉及 {len(file_details)} 个文件")
-            
-            # 保存到提交记录
-            commit['lines_added'] = lines_added
-            commit['lines_deleted'] = lines_deleted
-            commit['file_details'] = file_details
-            
-            # 更新进度
-            progress = 60 + (i + 1) * 40 // total_commits
-            task_status['progress'] = progress
-            task_status['message'] = f'正在获取代码行数... ({i + 1}/{total_commits})'
-            print(f"[{datetime.now()}] SVN任务 - 进度更新: {progress}%")
-        
-        task_status['progress'] = 80
-        task_status['message'] = '正在分析日志...'
-        print(f"[{datetime.now()}] SVN任务 - 开始生成统计数据")
-        
-        # 生成统计
-        print(f"[{datetime.now()}] SVN任务 - 生成新的统计数据")
-        task_status['execution_details'].append({
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'message': '生成新的统计数据',
-            'level': 'info'
-        })
-        # 生成新的统计，不使用现有结果
-        gen_analysis_results(commits, start_date, end_date, revision_range)
+                username = config.get('svn_username', '')
+                password = config.get('svn_password', '')
 
-        # 更新缓存文件，只保存缓存数据
-        print(f"[{datetime.now()}] SVN任务 - 正在更新缓存文件")
-        task_status['execution_details'].append({
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'message': '正在更新缓存文件',
-            'level': 'info'
-        })
-        
-        try:
-            # 只保存缓存数据，不保存分析结果
-            save_cache(cache_data)
-            print(f"[{datetime.now()}] SVN任务 - 缓存文件更新完成")
-            task_status['execution_details'].append({
-                'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-                'message': '缓存文件更新完成',
-                'level': 'info'
-            })
-        except Exception as e:
-            print(f"[{datetime.now()}] SVN任务 - 更新缓存文件失败: {e}")
-            task_status['execution_details'].append({
-                'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-                'message': f'更新缓存文件失败: {e}',
-                'level': 'error'
-            })
-        
-        task_status['progress'] = 100
-        task_status['message'] = f'分析完成! 共{len(commits)}条提交记录'
-        task_status['completed'] = True
-        task_status['running'] = False
-        
-        task_status['execution_details'].append({
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'message': f'任务执行完成，共处理 {len(commits)} 条提交记录',
-            'level': 'success'
-        })
-        
-        print(f"[{datetime.now()}] SVN任务 - 任务执行完成，状态: 成功")
-    except Exception as e:
-        error_msg = str(e)
-        print(f"[{datetime.now()}] SVN任务 - 任务执行失败: {error_msg}")
-        task_status['error'] = error_msg
-        task_status['running'] = False
-        task_status['execution_details'].append({
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'message': f'任务执行失败: {error_msg}',
-            'level': 'error'
-        })
-        import traceback
-        traceback.print_exc()
-
-# SVN日志获取任务
-def svn_log_task(branch_url, username, password, revision_range, start_date=None, end_date=None, withExternals=False):
-    global task_status
-
-    print(f"[{datetime.now()}] SVN任务 - 开始执行SVN代码统计任务")
-    print(f"[{datetime.now()}] SVN任务 - 参数: 分支URL: {branch_url}, 版本范围: {revision_range}, 开始日期: {start_date}, 结束日期: {end_date}")
-    
-    try:
-        # 重置执行明细
-        task_status['execution_details'] = []
-        
-        task_status['running'] = True
-        task_status['progress'] = 10
-        task_status['message'] = '正在连接SVN服务器...'
-        
-        # 添加执行明细
-        task_status['execution_details'].append({
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'message': '开始执行SVN代码统计任务',
-            'level': 'info'
-        })
-        print(f"[{datetime.now()}] SVN任务 - 执行明细已重置，状态已更新")
-        
-
-        task_status['execution_details'].append({
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'message': f'使用用户名: {username}',
-            'level': 'info'
-        })
-    
-        # 密码脱敏
-        task_status['execution_details'].append({
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'message': '使用密码: ******',
-            'level': 'info'
-        })
-
-        task_status['execution_details'].append({
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'message': f'使用版本范围: {revision_range}',
-            'level': 'info'
-        })
-
-        task_status['execution_details'].append({
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'message': f'分析SVN分支: {branch_url}',
-            'level': 'info'
-        })
-        
-        task_status['progress'] = 30
-        task_status['message'] = '正在获取SVN日志...'
-        
-        # 获取SVN日志（主分支）
-        main_result = get_svn_log(branch_url, username, password, revision_range)
-        
-        # 检查结果是否为None（表示获取失败）
-        if main_result is None:
-            error_msg = '获取SVN日志失败，请检查网络连接或SVN配置'
-            print(f"[{datetime.now()}] SVN任务 - 错误: {error_msg}")
-            task_status['error'] = error_msg
-            task_status['running'] = False
-            return
-        
-        # 检查命令执行结果
-        if main_result.returncode != 0:
-            error_msg = f'SVN命令执行失败: {main_result.stderr}'
-            print(f"[{datetime.now()}] SVN任务 - 错误: {error_msg}")
-            task_status['error'] = error_msg
-            task_status['running'] = False
-            return
-        
-        print(f"[{datetime.now()}] SVN任务 - 主分支SVN命令执行成功，返回码: {main_result.returncode}")
-        
-        
-        # 收集所有日志结果（主分支+externals）
-        all_log_results = [main_result]
-    
-        # 获取并处理SVN externals
-        if withExternals:
-            task_status['execution_details'].append({
-                'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-                'message': '开始处理SVN externals',
-                'level': 'info'
-            })
-
-            externals = get_svn_externals(branch_url, username, password)
-        
-            task_status['execution_details'].append({
-                'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-                'message': f'开始获取 {len(externals)} 个external分支的日志',
-                'level': 'info'
-            })
-            
-            # 获取每个external的日志
-            for i, external in enumerate(externals, 1):
-                external_msg = f'正在获取external分支日志 ({i}/{len(externals)}): {external["url"]}'
-                print(f"[{datetime.now()}] SVN任务 - {external_msg}")
-                task_status['execution_details'].append({
-                    'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-                    'message': external_msg,
-                    'level': 'info'
-                })
-                
-                external_result = get_svn_log(external['url'], username, password, revision_range)
-                
-                if external_result and external_result.returncode == 0:
-                    all_log_results.append(external_result)
-                    success_msg = f'external分支日志获取成功: {external["url"]}'
-                    print(f"[{datetime.now()}] SVN任务 - {success_msg}")
-                    task_status['execution_details'].append({
-                        'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-                        'message': success_msg,
-                        'level': 'success'
-                    })
-                else:
-                    error_msg = f'external分支日志获取失败: {external["url"]}'
-                    print(f"[{datetime.now()}] SVN任务 - {error_msg}")
-                    task_status['execution_details'].append({
-                        'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-                        'message': error_msg,
-                        'level': 'warning'
-                    })
-        else:
-            task_status['execution_details'].append({
-                'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-                'message': '未发现任何external配置',
-                'level': 'info'
-            })
-        
-        task_status['progress'] = 40
-        task_status['message'] = '正在保存日志...'
-        
-        print(f"[{datetime.now()}] SVN任务 - 正在保存日志")
-        
-        # 增量写入日志文件：合并现有日志和所有新获取的日志（主分支+externals）  
-        write_svn_log(all_log_results)
-        
-        task_status['execution_details'].append({
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'message': f'日志获取完成，已按年份保存到 logs 目录下',
-            'level': 'info'
-        })
-        
-        task_status['progress'] = 50
-        task_status['message'] = '正在解析日志并获取代码行数...'
-        task_status['execution_details'].append({
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'message': '开始解析日志文件',
-            'level': 'info'
-        })
-        
-        print(f"[{datetime.now()}] SVN任务 - 开始解析日志文件")
-
-        # 解析日志获取版本列表
-        commits = parse_svn_log(start_date, end_date)
-        print(f"[{datetime.now()}] SVN任务 - 日志解析完成，共找到 {len(commits)} 条提交记录")
-        task_status['execution_details'].append({
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'message': f'日志解析完成，共找到 {len(commits)} 条提交记录',
-            'level': 'info'
-        })
-        
-        total_commits = len(commits)
-        if total_commits == 0:
-            task_status['error'] = f'在指定日期范围内没有找到提交记录\n开始日期: {start_date or "无"}\n结束日期: {end_date or "无"}'
-            task_status['running'] = False
-            return
-        
-        task_status['execution_details'].append({
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'message': f'开始获取代码行数，共 {total_commits} 个版本需要分析',
-            'level': 'info'
-        })
-        
-        # 获取每个版本的代码行数变化
-        print(f"[{datetime.now()}] SVN任务 - 开始获取代码行数变化，共 {total_commits} 个版本需要分析")
-        for i, commit in enumerate(commits):
-            revision = commit['revision']
-            
-            print(f"[{datetime.now()}] SVN任务 - 分析版本 {revision} ({i + 1}/{total_commits})")
-            task_status['execution_details'].append({
-                'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-                'message': f'分析版本 {revision} ({i + 1}/{total_commits})',
-                'level': 'debug'
-            })
-            
             # 获取代码行数变化，包含文件详情
-            print(f"[{datetime.now()}] SVN任务 - 调用 get_svn_diff 获取版本 {revision} 的代码行数变化")
-            lines_added, lines_deleted, file_details = get_svn_diff(commit['branch_url'], revision, username, password, True)
-            print(f"[{datetime.now()}] SVN任务 - 版本 {revision} 分析完成，新增 {lines_added} 行，删除 {lines_deleted} 行，涉及 {len(file_details)} 个文件")
+            print(f"[{datetime.now()}] SVN任务 - 调用 get_svn_diff 版本 {revision} 获取代码行数变化")
+            lines_added, lines_deleted, file_details = get_svn_diff(branch_url, revision, username, password, True)
+            print(f"[{datetime.now()}] SVN任务 - 调用 get_svn_diff 版本 {revision} 分析完成，新增 {lines_added} 行，删除 {lines_deleted} 行，涉及 {len(file_details)} 个文件")
             
             # 保存到提交记录
             commit['lines_added'] = lines_added
@@ -1402,9 +1229,8 @@ def svn_log_task(branch_url, username, password, revision_range, start_date=None
             task_status['message'] = f'正在获取代码行数... ({i + 1}/{total_commits})'
             print(f"[{datetime.now()}] SVN任务 - 进度更新: {progress}%")
         
-        task_status['progress'] = 80
-        task_status['message'] = '正在分析日志...'
-        print(f"[{datetime.now()}] SVN任务 - 开始生成统计数据")
+        task_status['progress'] = 90
+        task_status['message'] = '正在生成统计数据...'
         
         # 生成统计
         print(f"[{datetime.now()}] SVN任务 - 生成新的统计数据")
@@ -1417,6 +1243,8 @@ def svn_log_task(branch_url, username, password, revision_range, start_date=None
         gen_analysis_results(commits, start_date, end_date, revision_range)
 
         # 更新缓存文件，只保存缓存数据
+        task_status['progress'] = 95
+        task_status['message'] = '正在更新缓存文件...'
         print(f"[{datetime.now()}] SVN任务 - 正在更新缓存文件")
         task_status['execution_details'].append({
             'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
@@ -1499,14 +1327,17 @@ def get_log(start_date=None, end_date=None):
         # 获取每个版本的代码行数变化
         print(f"[{datetime.now()}] SVN任务 - 开始获取代码行数变化，共 {total_commits} 个版本需要分析")
         for i, commit in enumerate(commits):
+            branch_url = commit['branch_url']
             revision = commit['revision']
+            username = config.get('svn_username', "")
+            password = config.get('svn_password', "")
             
             print(f"[{datetime.now()}] SVN任务 - 分析版本 {revision} ({i + 1}/{total_commits})")
             
             # 获取代码行数变化，包含文件详情
-            print(f"[{datetime.now()}] SVN任务 - 调用 get_svn_diff 获取版本 {revision} 的代码行数变化")
-            lines_added, lines_deleted, file_details = get_svn_diff(commit['branch_url'], revision, config.get('svn_username', ""), config.get('svn_password', ""), True)
-            print(f"[{datetime.now()}] SVN任务 - 版本 {revision} 分析完成，新增 {lines_added} 行，删除 {lines_deleted} 行，涉及 {len(file_details)} 个文件")
+            print(f"[{datetime.now()}] SVN任务 - 调用 get_svn_diff 版本 {revision} 获取代码行数变化")
+            lines_added, lines_deleted, file_details = get_svn_diff(branch_url, revision, username, password, True)
+            print(f"[{datetime.now()}] SVN任务 - 调用 get_svn_diff 版本 {revision} 分析完成，新增 {lines_added} 行，删除 {lines_deleted} 行，涉及 {len(file_details)} 个文件")
             
             # 保存到提交记录
             commit['lines_added'] = lines_added
@@ -1771,7 +1602,7 @@ def index():
 def start_analysis():
     global task_status
     
-    print(f"[{datetime.now()}] API POST /api/start-analysis - 请求开始分析任务")
+    print(f"[{datetime.now()}] API POST /api/start-analysis - params: {request.json}")
     
     if task_status['running']:
         print(f"[{datetime.now()}] API POST /api/start-analysis - 任务正在运行中，拒绝新请求")
@@ -1785,20 +1616,32 @@ def start_analysis():
     revision_range = (data.get('revision_range') or '').strip() or None
     start_date = (data.get('start_date') or '').strip() or None
     end_date = (data.get('end_date') or '').strip() or None
+    full_analysis = data.get('full_analysis', False)
     
-    # 日期处理逻辑
-    today = datetime.now().strftime('%Y-%m-%d')
-    if not start_date and not end_date:
-        # 两者都不存在，取今天作为结束日期，180天前作为开始日期
-        end_date = today
-        start_date = (datetime.now() - timedelta(days=config.get('log_range_days', 180))).strftime('%Y-%m-%d')
-    elif not end_date:
+
+    # 日期处理逻辑：保证最小日期范围，如果开始日期和结束日期都存在，检查日期范围是否小于180天
+    if not end_date:
         # 结束日期不存在，取今天作为结束日期
-        end_date = today
-    elif not start_date:
+        end_date = datetime.now().strftime('%Y-%m-%d')
+    if not start_date:
         # 开始日期不存在，取配置中的天数前作为开始日期
         start_date = (datetime.now() - timedelta(days=config.get('log_range_days', 180))).strftime('%Y-%m-%d')
+    if start_date and end_date:
+        try:
+            start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+            end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+            date_diff = (end_dt - start_dt).days
+            
+            if date_diff < config.get('log_range_days', 180):
+                # 日期范围小于180天，调整开始日期为结束日期前180天
+                new_start_dt = end_dt - timedelta(days=config.get('log_range_days', 180))
+                start_date = new_start_dt.strftime('%Y-%m-%d')
+                print(f"[{datetime.now()}] API POST /api/start-analysis - 日期范围{date_diff}天小于配置的{config.get('log_range_days', 180)}天，调整开始日期为: {start_date}")
+        except ValueError as e:
+            print(f"[{datetime.now()}] API POST /api/start-analysis - 日期格式错误: {e}")
     
+    print(f"[{datetime.now()}] API POST /api/start-analysis - 处理后日期范围，开始日期: {start_date}, 结束日期: {end_date}")
+
     # 检查是否使用多分支配置
     if branches:
         print(f"[{datetime.now()}] API POST /api/start-analysis - 使用多分支配置，共 {len(branches)} 个分支")
@@ -1813,9 +1656,7 @@ def start_analysis():
         if not branch_url:
             print(f"[{datetime.now()}] API POST /api/start-analysis - 缺少必填参数 branch_url，拒绝请求")
             return jsonify({'success': False, 'message': '请输入SVN分支URL'})
-    
-    print(f"[{datetime.now()}] API POST /api/start-analysis - 配置已保存，准备启动任务")
-    
+
     # 重置状态
     task_status = {
         'running': True,
@@ -1826,14 +1667,19 @@ def start_analysis():
         'execution_details': []
     }
     
+    print(f"[{datetime.now()}] SVN任务 - 执行明细已重置，状态已更新")
     # 在后台线程中执行任务
-    print(f"[{datetime.now()}] API POST /api/start-analysis - 启动后台线程执行任务，输出目录: ./logs")
+    print(f"[{datetime.now()}] API POST /api/start-analysis - 启动后台线程执行任务: 开始分析svn日志")
     
-    if branches:
-        thread = threading.Thread(target=multi_branch_svn_log_task, args=(branches, revision_range, start_date, end_date))
-    else:
-        thread = threading.Thread(target=svn_log_task, args=(branch_url, username, password, revision_range, start_date, end_date))
+    if not branches:
+        branches = []
+        branches.append({
+            'branch_url': branch_url,
+            'username': username,
+            'password': password
+        })
     
+    thread = threading.Thread(target=svn_log_task, args=(branches, revision_range, start_date, end_date, False, full_analysis))
     thread.start()
     
     print(f"[{datetime.now()}] API POST /api/start-analysis - 任务已启动，返回成功响应")
@@ -1852,10 +1698,34 @@ def get_status():
         'execution_details': task_status['execution_details']
     }
     
-    if task_status['completed']:
-        response['results'] = analysis_results
-    
     return jsonify(response)
+
+@app.route('/api/cache/clear', methods=['POST'])
+def clear_cache():
+    print(f"[{datetime.now()}] API POST /api/cache/clear - 请求清除缓存")
+    
+    global cache_data
+    
+    try:
+        # 清空全局缓存数据
+        cache_data = {
+            'version': '1.1',
+            'cache': {
+                'revision_file': {},
+                'revision_summary': {}
+            }
+        }
+        
+        # 保存到文件
+        with open(CACHE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(cache_data, f, ensure_ascii=False, indent=2)
+        
+        print(f"[{datetime.now()}] CACHE - 缓存已清空并保存到文件: {CACHE_FILE}")
+        
+        return jsonify({'success': True, 'message': '缓存已清除成功'})
+    except Exception as e:
+        print(f"[{datetime.now()}] CACHE - 清除缓存失败: {e}")
+        return jsonify({'success': False, 'message': f'清除缓存失败: {str(e)}'})
 
 @app.route('/api/results', methods=['POST'])
 def get_results():

@@ -5,6 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SVN代码统计工具</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="shortcut icon" type="image/svg+xml" href="/static/favicon.svg">
     <!-- Chart.js库必须在所有JavaScript代码之前加载 -->
     <!-- 本地Chart.js文件，避免CDN依赖 -->
     <script src="/static/js/chart.min.js"></script>
@@ -12,11 +14,11 @@
     <script>
         if (typeof Chart === 'undefined') {
             // 简单的Chart.js降级实现，仅提供基本功能
-            window.Chart = function() {
+            window.Chart = function () {
                 console.warn('Chart.js not loaded, using fallback implementation');
                 return {
-                    update: function() {},
-                    destroy: function() {}
+                    update: function () { },
+                    destroy: function () { }
                 };
             };
         }
@@ -150,6 +152,16 @@
             opacity: 0.6;
             cursor: not-allowed;
             transform: none;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(220, 53, 69, 0.4);
         }
 
         .btn-group {
@@ -597,17 +609,26 @@
                         <label for="revision-range">版本范围 (可选)</label>
                         <input type="text" id="revision-range" placeholder="例如: 100:200 或 HEAD">
                     </div>
+                    <div class="form-group">
+                        <label for="full-analysis" style="display: flex; align-items: center; gap: 10px;">
+                            <input type="checkbox" id="full-analysis" style="width: 18px; height: 18px;">
+                            <span>全量分析（不限制版本范围）</span>
+                        </label>
+                    </div>
                 </div>
 
                 <div class="btn-group">
                     <button class="btn btn-primary" onclick="saveConfig()">
-                        💾 保存配置
+                        💾 保存
                     </button>
                     <button class="btn btn-primary" id="reset-btn" onclick="resetAnalysis()">
                         🔄 重置
                     </button>
                     <button class="btn btn-primary" id="start-btn" onclick="startAnalysis()">
                         🚀 开始分析
+                    </button>
+                    <button class="btn btn-danger" onclick="clearCache()">
+                        🗑️ 清除缓存
                     </button>
                 </div>
 
@@ -621,7 +642,7 @@
                 <!-- 任务执行明细 -->
                 <div class="execution-details" id="execution-details" style="display: none; ">
                     <h4 style="margin-top: 0; margin-bottom: 10px; color: #333;">任务执行明细</h4>
-                    <div id="execution-details-content" class ="execution-details-content">
+                    <div id="execution-details-content" class="execution-details-content">
                         <!-- 动态填充执行明细 -->
                     </div>
                 </div>
@@ -658,7 +679,7 @@
                     </div>
 
                     <div class="btn-group">
-                        <button class="btn btn-primary" id="start-btn" onclick="loadResults()">
+                        <button class="btn btn-primary" id="start-btn" onclick="queryResults()">
                             🔁 查询
                         </button>
                     </div>
@@ -814,7 +835,7 @@
             window.addEventListener('load', function () {
                 addSectionToggleFunctionality();
                 loadSavedConfigs();
-                loadResults();
+                queryResults();
             });
 
             // 添加section收起/展开功能
@@ -1089,6 +1110,7 @@
                 const revisionRange = document.getElementById('revision-range').value.trim();
                 const startDate = document.getElementById('start-date').value.trim();
                 const endDate = document.getElementById('end-date').value.trim();
+                const fullAnalysis = document.getElementById('full-analysis').checked;
 
                 // 检查是否选择了配置或手动输入了分支URL
                 if (selectedConfigs.length === 0 && !branchUrl) {
@@ -1107,10 +1129,18 @@
 
                 try {
                     let requestBody = {
-                        revision_range: revisionRange || null,
                         start_date: startDate || null,
-                        end_date: endDate || null
+                        end_date: endDate || null,
+                        full_analysis: fullAnalysis
                     };
+
+                    // 如果勾选了全量分析，不限制版本范围
+                    if (fullAnalysis) {
+                        requestBody.revision_range = null;
+                    } else {
+                        // 如果没有勾选全量分析，服务端默认从缓存获取最新版本号
+                        requestBody.revision_range = revisionRange;
+                    }
 
                     // 如果选择了配置，使用配置信息
                     if (selectedConfigs.length > 0) {
@@ -1158,6 +1188,7 @@
                 document.getElementById('username').value = '';
                 document.getElementById('password').value = '';
                 document.getElementById('revision-range').value = '';
+                document.getElementById('full-analysis').checked = false;
 
                 // 取消选中的配置
                 const checkboxes = document.querySelectorAll('.config-checkbox input[type="checkbox"]');
@@ -1167,7 +1198,31 @@
 
                 // 更新已选配置数量
                 updateSelectedCount();
+            }
 
+            // 清除缓存
+            async function clearCache() {
+                // 二次确认
+                if (!confirm('是否确认清除缓存？\n清除后会重新增量缓存日志分析')) {
+                    return;
+                }
+
+                try {
+                    const response = await fetch('/api/cache/clear', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        alert('缓存已清除成功！');
+                    } else {
+                        alert('清除缓存失败：' + result.message);
+                    }
+                } catch (error) {
+                    alert('请求失败：' + error.message);
+                }
             }
 
             // 更新执行明细
@@ -1217,7 +1272,7 @@
 
                     if (status.completed) {
                         // 获取结果
-                        await loadResults();
+                        queryResults();
                         resetButton();
                     } else if (status.running) {
                         // 继续轮询
@@ -1231,7 +1286,7 @@
             }
 
             // 加载结果
-            async function loadResults() {
+            async function queryResults() {
                 try {
                     let today = new Date();
                     let startDate = document.getElementById('start-date').value.trim();
@@ -1265,36 +1320,41 @@
                     // 隐藏加载动画
                     hideLoading();
 
-                    // 如果有数据，直接显示结果
-                    if (analysisData && Array.isArray(analysisData.commits) && analysisData.commits.length > 0) {
-                        // 显示结果区域
-                        document.getElementById('results-card').style.display = 'block';
-
-                        // 生成统计概览
-                        generateStatsSummary();
-
-                        // 初始化筛选选项
-                        initFilters();
-
-                        // 初始化图表
-                        initCharts();
-
-                        // 生成表格
-                        generateAuthorTable();
-                        generateBranchTable();
-                        showMessage('结果加载成功', 'success');
-                    } else {
-                        // 清空之前的结果
-                        clearResults();
-                        // 显示暂无数据提示
-                        showMessage('暂无数据', 'info');
-                    }
+                    loadResult(analysisData);
 
                 } catch (error) {
                     hideLoading();
                     // 清空之前的结果
                     clearResults();
                     showError('加载结果失败: ' + error.message);
+                }
+            }
+
+            // 加载结果
+            function loadResult(analysisData) {
+                // 如果有数据，直接显示结果
+                if (analysisData && Array.isArray(analysisData.commits) && analysisData.commits.length > 0) {
+                    // 显示结果区域
+                    document.getElementById('results-card').style.display = 'block';
+
+                    // 生成统计概览
+                    generateStatsSummary();
+
+                    // 初始化筛选选项
+                    initFilters();
+
+                    // 初始化图表
+                    initCharts();
+
+                    // 生成表格
+                    generateAuthorTable();
+                    generateBranchTable();
+                    showMessage('结果加载成功', 'success');
+                } else {
+                    // 清空之前的结果
+                    clearResults();
+                    // 显示暂无数据提示
+                    showMessage('暂无数据', 'info');
                 }
             }
 
