@@ -458,10 +458,10 @@ def get_svn_diff(branch_url, revision, username=None, password=None, use_cache=F
                     # 如果文件缓存不存在，标记为需要重新获取
                     need_refresh = True
             if not need_refresh:
-                print(f"[{datetime.now()}] SVN-diff 缓存版本 {revision} 数据存在,使用缓存数据")
+                print(f"[{datetime.now()}] SVN-diff - 版本 {revision} 文件差异, -- 缓存数据")
                 return (total_lines_added, total_lines_deleted, file_details)
     
-    print(f"[{datetime.now()}] SVN-diff - 重新获取版本 {revision} 数据, branch_url: {branch_url}")
+    print(f"[{datetime.now()}] SVN-diff - 版本 {revision} 文件差异, -- 重新获取")
     # 解析SVN diff结果，获取每个文件的变化
     cmd = ['svn', 'diff', '-c', str(revision), '--no-auth-cache']
     
@@ -471,7 +471,7 @@ def get_svn_diff(branch_url, revision, username=None, password=None, use_cache=F
         cmd.extend(['--password', password])
     
     cmd.append(branch_url)
-    print(f"[{datetime.now()}] SVN-diff - 正在执行SVN命令: {' '.join(cmd)}")
+    # print(f"[{datetime.now()}] SVN-diff - 正在执行SVN命令: {' '.join(cmd)}")
     
     try:
         # 使用text=False获取原始字节输出
@@ -497,68 +497,49 @@ def get_svn_diff(branch_url, revision, username=None, password=None, use_cache=F
         total_lines_deleted = 0
         file_details = {}
         
-        # 正则表达式匹配文件块
-        import re
-        file_block_pattern = re.compile(r'---\s+(.*?)\s+\d+.*?\n\+\+\+\s+(.*?)\s+\d+.*?(?=\n---|\Z)', re.DOTALL)
+        # 按照标准SVN diff格式解析
+        # 首先按Index分割每个文件
+        file_blocks = diff_output.split('Index: ')
         
-        # 遍历所有文件块
-        for match in file_block_pattern.finditer(diff_output):
-            old_file = match.group(1).strip()
-            new_file = match.group(2).strip()
+        for file_block in file_blocks:
+            if not file_block.strip():
+                continue
+                
+            # 提取文件路径
+            lines = file_block.split('\n')
+            if not lines:
+                continue
+                
+            # 第一行是文件路径
+            file_path = lines[0].strip()
             
-            # 提取相对文件路径
-            if old_file.startswith('/'):
-                file_path = old_file.lstrip('/')
-            else:
-                # 从分支URL解析相对路径
-                file_path = new_file.split('/')[-1]
-                if len(new_file.split('/')) > 1:
-                    file_path = '/'.join(new_file.split('/')[-2:])
+            # 查找---和+++行
+            old_file_line = None
+            new_file_line = None
             
-            # 获取文件内容
-            file_content = match.group(0)
+            for line in lines:
+                if line.startswith('--- '):
+                    old_file_line = line
+                elif line.startswith('+++ '):
+                    new_file_line = line
+                    break
             
+            # 如果没有找到---和+++行，跳过
+            if not old_file_line or not new_file_line:
+                continue
+                
             # 计算该文件的新增和删除行数
-            author = ''
             lines_added = 0
             lines_deleted = 0
             
-            for line in file_content.split('\n'):
+            # 统计行变化
+            for line in lines:
+                # 单个+表示增加的行（不包括+++）
                 if line.startswith('+') and not line.startswith('+++'):
                     lines_added += 1
+                # 单个-表示删除的行（不包括---）
                 elif line.startswith('-') and not line.startswith('---'):
                     lines_deleted += 1
-            
-            # 生成文件级缓存键
-            file_cache_key = generate_file_cache_key(revision, file_path)
-            
-            # 获取文件当前版本的哈希值
-            current_file_hash = get_svn_file_content_hash(branch_url, revision, file_path, username, password)
-            
-            # 检查文件缓存
-            use_cached = False
-            if file_cache_key in cache_data['cache']['revision_file']:
-                cached_file = cache_data['cache']['revision_file'][file_cache_key]
-                if cached_file['hash'] == current_file_hash:
-                    # 文件内容未变化，使用缓存数据
-                    lines_added = cached_file['lines_added']
-                    lines_deleted = cached_file['lines_deleted']
-                    author = cached_file['author']
-                    use_cached = True
-                    print(f"[{datetime.now()}] SVN-diff 使用缓存文件数据: {file_path}")
-            
-            # 如果没有缓存或文件内容变化，更新缓存
-            if not use_cached:
-                # 保存文件级缓存
-                cache_data['cache']['revision_file'][file_cache_key] = {
-                    'revision': revision,
-                    'file_path': file_path,
-                    'hash': current_file_hash,
-                    'author': author,
-                    'lines_added': lines_added,
-                    'lines_deleted': lines_deleted,
-                    'timestamp': int(time.time())
-                }
             
             # 累加到总统计
             total_lines_added += lines_added
@@ -568,23 +549,11 @@ def get_svn_diff(branch_url, revision, username=None, password=None, use_cache=F
             file_details[file_path] = {
                 'lines_added': lines_added,
                 'lines_deleted': lines_deleted,
-                'cached': use_cached,
-                'author': author
+                'cached': False,
+                'author': ''
             }
-        
-        # 保存版本级缓存摘要
-        cache_data['cache']['revision_summary'][revision_cache_key] = {
-            'revision': revision,
-            'branch_url': branch_url,
-            'total_lines_added': total_lines_added,
-            'total_lines_deleted': total_lines_deleted,
-            'file_count': len(file_details),
-            'file_list': list(file_details.keys()),
-            'timestamp': int(time.time())
-        }
-        
-        # 保存缓存文件
-        save_cache(cache_data)
+            
+            print(f"[{datetime.now()}] SVN-diff 解析文件: {file_path}, 新增: {lines_added}, 删除: {lines_deleted}")
         
         return (total_lines_added, total_lines_deleted, file_details)
     except Exception as e:
@@ -1195,6 +1164,7 @@ def svn_log_task(branches, revision_range, start_date=None, end_date=None, withE
         for i, commit in enumerate(commits):
             revision = commit['revision']
             branch_url = commit['branch_url']
+            author = commit['author']
             
             print(f"[{datetime.now()}] SVN任务 - 分析版本 {revision} ({i + 1}/{total_commits})")
             task_status['execution_details'].append({
@@ -1218,6 +1188,39 @@ def svn_log_task(branches, revision_range, start_date=None, end_date=None, withE
             lines_added, lines_deleted, file_details = get_svn_diff(branch_url, revision, username, password, True)
             print(f"[{datetime.now()}] SVN任务 - 调用 get_svn_diff 版本 {revision} 分析完成，新增 {lines_added} 行，删除 {lines_deleted} 行，涉及 {len(file_details)} 个文件")
             
+            if file_details:
+                # 生成版本级缓存键
+                revision_cache_key = generate_revision_cache_key(revision, branch_url);
+
+                for file_path, details in file_details.items():
+                    if details['cached']:
+                        continue
+                    
+                    details['author'] = author
+                    file_cache_key = generate_file_cache_key(revision, file_path)
+                    cache_data['cache']['revision_file'][file_cache_key] = {
+                        'revision': revision,
+                        'file_path': file_path,
+                        'lines_added': details['lines_added'],
+                        'lines_deleted': details['lines_deleted'],
+                        'author': author,
+                        'timestamp': int(time.time())
+                    }
+
+                # 保存版本级缓存摘要
+                cache_data['cache']['revision_summary'][revision_cache_key] = {
+                    'revision': revision,
+                    'branch_url': branch_url,
+                    'total_lines_added': lines_added,
+                    'total_lines_deleted': lines_deleted,
+                    'file_count': len(file_details),
+                    'file_list': list(file_details.keys()),
+                    'timestamp': int(time.time())
+                }
+            
+                # 保存缓存文件
+                # save_cache(cache_data)
+
             # 保存到提交记录
             commit['lines_added'] = lines_added
             commit['lines_deleted'] = lines_deleted
@@ -1329,6 +1332,7 @@ def get_log(start_date=None, end_date=None):
         for i, commit in enumerate(commits):
             branch_url = commit['branch_url']
             revision = commit['revision']
+            author = commit['author']
             username = config.get('svn_username', "")
             password = config.get('svn_password', "")
             
@@ -1339,6 +1343,39 @@ def get_log(start_date=None, end_date=None):
             lines_added, lines_deleted, file_details = get_svn_diff(branch_url, revision, username, password, True)
             print(f"[{datetime.now()}] SVN任务 - 调用 get_svn_diff 版本 {revision} 分析完成，新增 {lines_added} 行，删除 {lines_deleted} 行，涉及 {len(file_details)} 个文件")
             
+            if file_details:
+                # 生成版本级缓存键
+                revision_cache_key = generate_revision_cache_key(revision, branch_url);
+
+                for file_path, details in file_details.items():
+                    if details['cached']:
+                        continue
+                    
+                    details['author'] = author
+                    file_cache_key = generate_file_cache_key(revision, file_path)
+                    cache_data['cache']['revision_file'][file_cache_key] = {
+                        'revision': revision,
+                        'file_path': file_path,
+                        'lines_added': details['lines_added'],
+                        'lines_deleted': details['lines_deleted'],
+                        'author': author,
+                        'timestamp': int(time.time())
+                    }
+
+                # 保存版本级缓存摘要
+                cache_data['cache']['revision_summary'][revision_cache_key] = {
+                    'revision': revision,
+                    'branch_url': branch_url,
+                    'total_lines_added': lines_added,
+                    'total_lines_deleted': lines_deleted,
+                    'file_count': len(file_details),
+                    'file_list': list(file_details.keys()),
+                    'timestamp': int(time.time())
+                }
+            
+                # 保存缓存文件
+                # save_cache(cache_data)
+
             # 保存到提交记录
             commit['lines_added'] = lines_added
             commit['lines_deleted'] = lines_deleted

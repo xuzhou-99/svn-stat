@@ -811,6 +811,9 @@
                                     <th>分支</th>
                                     <th>提交次数</th>
                                     <th>修改文件数</th>
+                                    <th>新增代码行</th>
+                                    <th>删除代码行</th>
+                                    <th>净增代码行</th>
                                     <th>参与作者</th>
                                 </tr>
                             </thead>
@@ -1727,11 +1730,15 @@
                 const rows = [];
 
                 for (const [branch, stats] of Object.entries(analysisData.branch_stats)) {
+                    const netLines = stats.lines_added - stats.lines_deleted;
                     rows.push(`
                     <tr>
                         <td>${branch}</td>
                         <td>${stats.commits}</td>
                         <td>${stats.files_changed}</td>
+                        <td>${stats.lines_added}</td>
+                        <td>${stats.lines_deleted}</td>
+                        <td>${netLines}</td>
                         <td>${stats.authors.join(', ')}</td>
                     </tr>
                 `);
